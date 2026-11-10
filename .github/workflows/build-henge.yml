@@ -1,112 +1,194 @@
-# .github/workflows/build-henge.yml
-#
-# Builds a Henge.ipa from your fork's main branch on a GitHub-hosted macOS
-# runner, no Mac needed. Free on a PUBLIC repo: public repos get unlimited
-# minutes on hosted runners, including macOS. On a private repo, macOS minutes
-# bill at 10x, so the free tier's ~2000 min/month is only ~200 macOS minutes.
-#
-# The IPA comes out unsigned with ad-hoc signing (package_ipa.sh's normal
-# output). SideStore/AltStore re-signs it with your certificate on install
-# and keeps the entitlements it can; increased-memory-limit only survives if
-# your certificate carries it, and Henge falls back to file-backed guest RAM
-# without it.
-
-name: Build Henge IPA
-
-# Manual only (Actions tab > Build Henge IPA > Run workflow): pushes to main don't build an IPA.
-on:
+name: Build Henge 0.2 diagnostic (experimental)
+'on':
   workflow_dispatch: {}
-
-env:
-  HUSK: ${{ github.workspace }}/Husk
-  # The Makefile takes its slirp headers from IOS_DEPS, not HUSK:
-  #   IOS_DEPS ?= $(HOME)/Documents/Coding/Husk/build/ios-arm64/sysroot
-  # (HUSK is only read by ios/scripts/fetch_deps.sh.)
-  IOS_DEPS: ${{ github.workspace }}/Husk/build/ios-arm64/sysroot
-
+permissions:
+  contents: read
+concurrency:
+  group: henge-diagnostic-build
+  cancel-in-progress: false
 jobs:
   build:
-    # Xcode 27 image (arm64, GA since Oct 2026). Plain `xcode-27` is a standard
-    # runner, so it's free on public repos; `xcode-27-xlarge` is a paid larger
-    # runner. Table: https://github.com/actions/runner-images#available-images
     runs-on: xcode-27
-    timeout-minutes: 120
-
+    timeout-minutes: 90
+    env:
+      HUSK: ${{ github.workspace }}/Husk
+      IOS_DEPS: ${{ github.workspace }}/Husk/build/ios-arm64/sysroot
+      HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
-      - name: Check out Henge (this fork)
-        uses: actions/checkout@v4
-        with:
-          path: Henge
+    - name: Check out exact upstream 0.2 source
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        repository: Leviidev/Henge
+        ref: f9c12c93620af4c4c5f5f65f9793b72f883be682
+        path: Henge
+        persist-credentials: false
+    - name: Check out pinned Husk dependency source
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      with:
+        repository: Leviidev/Husk
+        ref: afe83d45b31194c4cc9f7b3db7ec2c757db8346e
+        path: Husk
+        persist-credentials: false
+    - name: Apply narrow diagnostics (no engine or RAM behavior changes)
+      shell: bash
+      run: |
+        python3 - <<'PYDIAG'
+        import os, plistlib
+        from pathlib import Path
+        root=Path('Henge')
+        p=root/'ios/Henge/Installer.swift'
+        s=p.read_text()
+        s=s.replace('        machineName = name\n', '        machineName = name\n        RestoreDiagnostics.begin(releaseID: release.id, selectedMB: ramMB)\n', 1)
+        s=s.replace('            defer { UIApplication.shared.isIdleTimerDisabled = false }', '            defer { UIApplication.shared.isIdleTimerDisabled = false; RestoreDiagnostics.finish() }', 1)
+        s=s.replace('        let ram = GuestMemory.prepare(restoring)', '        let ram = GuestMemory.prepare(restoring)\n        RestoreDiagnostics.record("restore-allocation actualMB=\\(ram) minimumMB=2048")', 1)
+        s=s.replace('        while true {\n            try await Task.sleep(nanoseconds: 1_000_000_000)', '        var diagnosticTick = 0\n        while true {\n            try await Task.sleep(nanoseconds: 1_000_000_000)\n            diagnosticTick += 1\n            if diagnosticTick % 5 == 0 { RestoreDiagnostics.snapshot(step: step, progress: stepProgress) }', 1)
+        s=s.replace('                phase = .failed(error.localizedDescription)', '                RestoreDiagnostics.record("install-failed; inspect private henge.log for detail")\n                phase = .failed(error.localizedDescription)', 1)
+        assert 'RestoreDiagnostics.snapshot' in s
+        p.write_text(s)
+        (root/'ios/Henge/RestoreDiagnostics.swift').write_text(r'''// Experimental diagnostics, 2026-11-10. GPL-2.0-or-later, as Henge.
+        // Stays on the phone. No network upload, IPs, pairing data, paths or machine names.
+        import Foundation
+        import UIKit
 
-      # fetch_deps.sh copies prebuilt pieces out of a BUILT Husk checkout:
-      # StikJIT.xcframework (vendored in Husk's repo, comes with checkout),
-      # libhusk_rppairing.a (scripts/build_rppairing_ios.sh) and the
-      # libslirp/glib/intl/pcre2 static libs (scripts/build_ios.sh).
-      - name: Check out Husk
-        uses: actions/checkout@v4
-        with:
-          repository: Leviidev/Husk
-          path: Husk
+        @MainActor
+        enum RestoreDiagnostics {
+            private static var handle: FileHandle?
+            private static var warning: NSObjectProtocol?
+            private static var priorTunnel: Bool?
+            private static let clock = ISO8601DateFormatter()
 
-      - name: Cache Husk's sources and prebuilt iOS pieces
-        uses: actions/cache@v4
-        with:
-          path: |
-            Husk/third_party/build
-            Husk/build
-          key: husk-ios-arm64-${{ hashFiles('Husk/scripts/build_ios.sh', 'Husk/scripts/fetch_sources.sh') }}
+            static func begin(releaseID: String, selectedMB: Int) {
+                finish()
+                let fm = FileManager.default
+                guard let documents = fm.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+                let dir = documents.appendingPathComponent("RestoreDiagnostics", isDirectory: true)
+                do {
+                    try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                    let existing = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+                    let logs = existing.filter { $0.lastPathComponent.hasPrefix("restore-") && $0.pathExtension == "txt" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+                    // Retain three install attempts. Reopening Henge does not rotate them.
+                    for old in logs.prefix(max(0, logs.count - 2)) { try? fm.removeItem(at: old) }
+                    let filename = "restore-\(Int(Date().timeIntervalSince1970)).txt"
+                    let file = dir.appendingPathComponent(filename)
+                    guard fm.createFile(atPath: file.path, contents: nil, attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { return }
+                    handle = try FileHandle(forWritingTo: file)
+                    warning = NotificationCenter.default.addObserver(forName: UIApplication.didReceiveMemoryWarningNotification, object: nil, queue: .main) { _ in
+                        Task { @MainActor in record("iOS-memory-warning") }
+                    }
+                    priorTunnel = nil
+                    record("experimental=0.2.1-diag.1 base=0.2 releaseID=\(releaseID) selectedMB=\(selectedMB) physicalMB=\(ProcessInfo.processInfo.physicalMemory >> 20)")
+                    record("No crash fix claimed. No automatic upload. Restore minimum is 2048 MB even when 1024 MB is selected.")
+                } catch { HengeLog.log("diagnostic", "could not create private restore diagnostic file") }
+            }
 
-      - name: Install build tools
-        run: |
-          set -euxo pipefail
-          brew install xcodegen meson ninja pkg-config
-          # Runner images ship rustup; add the iOS target if it's missing.
-          rustup target add aarch64-apple-ios || {
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-            rustup target add aarch64-apple-ios
-          }
+            static func record(_ message: String) {
+                guard let handle else { return }
+                let line = "\(clock.string(from: Date())) \(message)\n"
+                if let data = line.data(using: .utf8) {
+                    try? handle.write(contentsOf: data)
+                    try? handle.synchronize()
+                }
+            }
 
-      # build_ios.sh builds from third_party/build/<name>; the sources are
-      # fetched by fetch_sources.sh, which Husk's own ci_build.sh runs first.
-      - name: Fetch Husk's third-party sources
-        working-directory: Husk
-        run: bash scripts/fetch_sources.sh
+            static func snapshot(step: Int, progress: Double) {
+                let tunnel = LocalDevVPN.isConnected
+                let state: String
+                switch UIApplication.shared.applicationState {
+                case .active: state = "active"
+                case .inactive: state = "inactive"
+                default: state = "background"
+                }
+                // Existing helper records Henge's charged footprint and available-before-jetsam.
+                // This is not total system free memory and not proof of a memory kill.
+                HengeLog.logFootprint("restore-diagnostic")
+                let available = henge_available_memory() >> 20
+                record("step=\(step) percent=\(Int(progress * 100)) appState=\(state) tunnelDetected=\(tunnel) availableForAppMB=\(available) thermalRaw=\(ProcessInfo.processInfo.thermalState.rawValue)")
+                if priorTunnel != tunnel { record("tunnel-observation-changed; interface heuristic only, not VPN stop reason") }
+                priorTunnel = tunnel
+            }
 
-      # Henge only needs these three sysroot pieces: libffi (a glib dep),
-      # glib (whose meson subprojects also produce libpcre2-8 and libintl),
-      # and libslirp (the guest network). Skip Husk's pixman/libucontext/qemu
-      # stages entirely: that's the Android emulator, minutes instead of an
-      # hour-plus.
-      - name: Build the iOS libraries Henge needs
-        working-directory: Husk
-        run: bash scripts/build_ios.sh libffi glib libslirp
+            static func finish() {
+                if handle != nil { record("diagnostic-session-ended-normally") }
+                if let warning { NotificationCenter.default.removeObserver(warning) }
+                warning = nil
+                try? handle?.close()
+                handle = nil
+            }
+        }
+        ''')
+        p=root/'ios/Henge/Info.plist'
+        d=plistlib.loads(p.read_bytes()); d['CFBundleShortVersionString']='0.2.1'; d['CFBundleVersion']='101'; d['HengeDiagnosticVersion']='0.2.1-diag.1'; p.write_bytes(plistlib.dumps(d, sort_keys=False))
+        # Keep the bundle identifier, document paths, entitlements and JIT behavior unchanged.
 
-      - name: Build Husk's on-device pairing library
-        working-directory: Husk
-        run: bash scripts/build_rppairing_ios.sh
-
-      - name: Copy prebuilt deps into Henge
-        working-directory: Henge
-        run: zsh ios/scripts/fetch_deps.sh
-
-      - name: Build the restore stack (libirecovery, usbmuxd, idevicerestore)
-        working-directory: Henge
-        run: zsh tools/build_ios_restore.sh
-
-      - name: Build the engine
-        working-directory: Henge
-        run: make ios-lib
-
-      - name: Package Henge.ipa
-        working-directory: Henge
-        run: zsh ios/scripts/package_ipa.sh
-        # For a TrollStore build instead, use:
-        #   zsh ios/scripts/package_ipa.sh --trollstore
-        # which writes ~/Desktop/Henge.tipa instead.
-
-      - name: Upload Henge.ipa
-        uses: actions/upload-artifact@v4
-        with:
-          name: Henge-ipa-${{ github.sha }}
-          path: /Users/runner/Desktop/Henge.ipa
-          if-no-files-found: error
+        PYDIAG
+        git -C Henge diff --check
+    - name: Install build tools and target
+      shell: bash
+      run: |
+        set -euo pipefail
+        missing=()
+        for tool in meson ninja pkg-config xcodegen cmake; do
+          command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+        done
+        if ((${#missing[@]})); then brew install "${missing[@]}"; fi
+        export PATH="$HOME/.cargo/bin:$PATH"
+        rustup target add aarch64-apple-ios
+        xcodebuild -version
+    - name: Build pinned dependencies
+      working-directory: Husk
+      shell: bash
+      run: |
+        set -euo pipefail
+        export PATH="$HOME/.cargo/bin:$PATH"
+        bash scripts/fetch_sources.sh
+        bash scripts/build_ios.sh libffi glib libslirp
+        bash scripts/build_rppairing_ios.sh
+    - name: Build JIT framework from pinned source and package experimental IPA
+      working-directory: Henge
+      shell: bash
+      run: |
+        set -euo pipefail
+        zsh ios/scripts/fetch_deps.sh
+        bash ci/build-stikjit.sh "$GITHUB_WORKSPACE/StikJIT"
+        rm -rf ios/deps/StikJIT.xcframework
+        ditto "$GITHUB_WORKSPACE/StikJIT/StikJIT.xcframework" ios/deps/StikJIT.xcframework
+        zsh tools/build_ios_restore.sh
+        make ios-lib
+        mkdir -p "$HOME/Desktop"
+        zsh ios/scripts/package_ipa.sh
+    - name: Validate package, identity, diagnostics and privacy boundaries
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 - <<'PYVERIFY'
+        from pathlib import Path
+        import plistlib,zipfile,hashlib
+        p=Path.home()/'Desktop/Henge.ipa'
+        with zipfile.ZipFile(p) as z:
+            names=z.namelist()
+            for n in names:
+                assert not any(x in n.lower() for x in ('pairingfile','henge.log','henge-prev.log','disk.img','avpbooter','avpsepbooter','.mobileprovision')),n
+            d=plistlib.loads(z.read('Payload/Henge.app/Info.plist'))
+            assert d['CFBundleIdentifier']=='com.henge.app',d
+            assert d['CFBundleShortVersionString']=='0.2.1',d
+            assert d['CFBundleVersion']=='101',d
+            assert d['HengeDiagnosticVersion']=='0.2.1-diag.1',d
+            for n in ['Payload/Henge.app/Henge','Payload/Henge.app/PlugIns/HengeJITHelper.appex/HengeJITHelper','Payload/Henge.app/Frameworks/StikJIT.framework/StikJIT']:
+                assert n in names,n
+            binary=z.read('Payload/Henge.app/Henge')
+            assert b'restore-diagnostic' in binary
+            assert b'tunnel-observation-changed' in binary
+        print('Experimental IPA validated:',p.stat().st_size,'bytes SHA256',hashlib.sha256(p.read_bytes()).hexdigest())
+        PYVERIFY
+        APP=Henge/ios/build/DerivedData/Build/Products/Release-iphoneos/Henge.app
+        codesign --verify --deep --strict "$APP"
+        codesign -d --entitlements - "$APP" > /tmp/henge-entitlements.plist 2>/dev/null
+        /usr/libexec/PlistBuddy -c 'Print :get-task-allow' /tmp/henge-entitlements.plist | grep true
+        printf '%s\n' 'Compile/package validation only. No public IPA published; physical device behavior unverified.' >> "$GITHUB_STEP_SUMMARY"
+    - name: Print limited build errors if compilation failed
+      if: failure()
+      shell: bash
+      run: |
+        for f in Henge/ios/build/DerivedData.buildlog Husk/build/logs/*.log; do
+          if [ -f "$f" ]; then echo "=== $f ==="; tail -60 "$f"; fi
+        done
