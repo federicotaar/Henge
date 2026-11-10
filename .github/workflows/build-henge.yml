@@ -184,7 +184,7 @@ jobs:
         unzip -q "$HOME/Desktop/Henge.ipa" -d /tmp/henge-ipa-inspection
         APP=/tmp/henge-ipa-inspection/Payload/Henge.app
         codesign --verify --deep --strict "$APP"
-        codesign -d --entitlements - "$APP" > /tmp/henge-entitlements.plist 2>/dev/null
+        codesign -d --entitlements - --xml "$APP" > /tmp/henge-entitlements.plist 2>/dev/null
         /usr/libexec/PlistBuddy -c 'Print :get-task-allow' /tmp/henge-entitlements.plist | grep true
         printf '%s\n' 'Compiled experimental package validated. Physical device behavior unverified.' >> "$GITHUB_STEP_SUMMARY"
     - name: Archive and check corresponding source and licenses
