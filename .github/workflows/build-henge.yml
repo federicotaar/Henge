@@ -180,11 +180,90 @@ jobs:
             assert b'tunnel-observation-changed' in binary
         print('Experimental IPA validated:',p.stat().st_size,'bytes SHA256',hashlib.sha256(p.read_bytes()).hexdigest())
         PYVERIFY
-        APP=Henge/ios/build/DerivedData/Build/Products/Release-iphoneos/Henge.app
+        mkdir -p /tmp/henge-ipa-inspection
+        unzip -q "$HOME/Desktop/Henge.ipa" -d /tmp/henge-ipa-inspection
+        APP=/tmp/henge-ipa-inspection/Payload/Henge.app
         codesign --verify --deep --strict "$APP"
         codesign -d --entitlements - "$APP" > /tmp/henge-entitlements.plist 2>/dev/null
         /usr/libexec/PlistBuddy -c 'Print :get-task-allow' /tmp/henge-entitlements.plist | grep true
-        printf '%s\n' 'Compile/package validation only. No public IPA published; physical device behavior unverified.' >> "$GITHUB_STEP_SUMMARY"
+        printf '%s\n' 'Compiled experimental package validated. Physical device behavior unverified.' >> "$GITHUB_STEP_SUMMARY"
+    - name: Archive and check corresponding source and licenses
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        mkdir -p release/Source/Henge release/Source/Husk release/Source/StikJIT release/Source/build-recipe
+        # Archive only reviewed source inputs, not build folders, credentials, diagnostic logs or system images.
+        git -C Henge archive HEAD | tar -x -C release/Source/Henge
+        cp Henge/ios/Henge/Installer.swift Henge/ios/Henge/RestoreDiagnostics.swift Henge/ios/Henge/Info.plist release/Source/Henge/ios/Henge/
+        git -C Husk archive HEAD | tar -x -C release/Source/Husk
+        git -C StikJIT archive HEAD | tar -x -C release/Source/StikJIT
+        cp StikJIT/Sources/ScriptRunner.swift release/Source/StikJIT/Sources/
+        mkdir -p release/Source/Husk/third_party/sources
+        cp Husk/third_party/sources/* release/Source/Husk/third_party/sources/
+        # Supply the exact Rust dependency sources covered by Cargo.lock.
+        (cd Husk/src/rppairing-ios && cargo vendor --locked "$GITHUB_WORKSPACE/release/Source/rust-vendor")
+        # Source archives plus original dependency tarballs retain all dependency license notices.
+        mkdir -p release/Source/Husk/third_party/build/libucontext
+        git -C Husk/third_party/build/libucontext archive HEAD | tar -x -C release/Source/Husk/third_party/build/libucontext
+        cp Husk/src/app/Husk/Resources/legal/LICENSES-rppairing-crates.txt release/Source/Henge/ios/Henge/Resources/legal/
+        # Record public workflow and exact source inputs as the reproducible build recipe.
+        gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/build-henge.yml?ref=$GITHUB_SHA" --jq .content | base64 --decode > release/Source/build-recipe/build-henge.yml
+        cat > release/Source/BUILDING.txt <<'EOF'
+        Experimental Henge 0.2.1-diag.1, build 101
+        Not a verified crash fix. Device behavior not tested by this build.
+        Henge base: f9c12c93620af4c4c5f5f65f9793b72f883be682 (upstream 0.2)
+        Husk source: afe83d45b31194c4cc9f7b3db7ec2c757db8346e
+        StikJIT 1.9.0: 32287268fa5824f9edce4cb359f5833ce0cf7b00, with Henge ci/stikjit-high-address.patch
+        The modified Henge files are already applied in Source/Henge. Full build steps are in build-recipe/build-henge.yml.
+        Requires macOS with Xcode27, xcodegen, cmake, meson, ninja, pkg-config, Rust aarch64-apple-ios.
+        Set HUSK to the Husk folder; IOS_DEPS to Husk/build/ios-arm64/sysroot.
+        Build Husk scripts/fetch_sources.sh, scripts/build_ios.sh libffi glib libslirp, scripts/build_rppairing_ios.sh.
+        Run Henge ios/scripts/fetch_deps.sh; rebuild StikJIT using ci/build-stikjit.sh; copy framework to ios/deps; run tools/build_ios_restore.sh, make ios-lib, ios/scripts/package_ipa.sh.
+        All original copyright and license notices are preserved. Henge is GPL-2.0-or-later; combined distribution may be GPL-3.0 due to idevicerestore. StikJIT is MPL-2.0; bundled idevice FFI is MIT, preserved as supplied upstream. Rust crate sources and original dependency archives are included. See Henge/docs/licensing.md and bundled notices.
+        No Apple macOS restore images, boot ROM, exported Macs, private logs, pairing files or credentials are included.
+        App bundle identity remains com.henge.app; side-loading requires re-signing with a suitable certificate. Do not delete a current installation/data to install this build. Back up existing Mac exports outside the app first. Same signing identity/bundle identifier is needed for an in-place update.
+        Diagnostic traces stay on device at Documents/RestoreDiagnostics; up to three install attempts are retained. No automatic upload. Normal upstream Henge logs can contain device/path data; keep them private.
+        EOF
+        cp "$HOME/Desktop/Henge.ipa" release/Henge-0.2.1-diag.1-unsigned.ipa
+        python3 - <<'PYVALIDATE'
+        from pathlib import Path
+        root=Path('release/Source')
+        for p in root.rglob('*'):
+            if p.is_file():
+                n=p.name.lower()
+                assert not n.endswith(('.ipsw','.mobiledevicepairing','.mobileprovision')),p
+                assert n not in ('henge.log','henge-prev.log','henge-native.log','henge-native-prev.log','disk.img','auxiliary.bin','avpbooter.vmapple2.bin'),p
+        for req in ('Henge/LICENSE','Henge/ios/Henge/RestoreDiagnostics.swift','Husk/src/rppairing-ios/Cargo.lock','StikJIT/LICENSE','BUILDING.txt','build-recipe/build-henge.yml'):
+            assert (root/req).is_file(),req
+        assert (root/'rust-vendor').is_dir()
+        PYVALIDATE
+        tar -czf release/Henge-0.2.1-diag.1-corresponding-source.tar.gz -C release Source
+        (cd release && shasum -a 256 Henge-*.ipa Henge-*.tar.gz > SHA256SUMS.txt)
+        python3 - <<'PYSIZE'
+        from pathlib import Path
+        for p in Path('release').glob('*'):
+            if p.is_file():
+                assert p.stat().st_size < 2*1024**3,p
+                print(p.name,p.stat().st_size)
+        PYSIZE
+    - name: Publish validated experimental prerelease (no Actions artifacts)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        cat > /tmp/henge-release-notes.txt <<'EOF'
+        Experimental diagnostic build, NOT a verified crash fix. Based only on upstream 0.2 plus narrow install tracing; no new emulator engine or RAM behavior changes. Physical-device testing remains required.
+
+        Adds persistent local restore-attempt traces with timestamps, stage, actual restore RAM, memory warnings and tunnel-interface observations. Keeps three attempts across app restarts. No automatic uploads; no personal logs or pairing data included in this release.
+
+        The IPA is ad-hoc signed and must be re-signed by a suitable sideloader. Bundle identity is preserved. Do not delete your current app or its data to install it; use a compatible in-place update only after backing up any Mac exports outside the app. No macOS restore images or Apple boot ROM included.
+
+        Corresponding modified source, dependency source archives, build recipe and copyright/license notices are provided in the source asset. See BUILDING.txt. SHA256 checksums are included.
+        EOF
+        gh release create v0.2.1-diag.1 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease --title 'Henge 0.2.1-diag.1 - experimental diagnostics' --notes-file /tmp/henge-release-notes.txt release/Henge-0.2.1-diag.1-unsigned.ipa release/Henge-0.2.1-diag.1-corresponding-source.tar.gz release/SHA256SUMS.txt
     - name: Print limited build errors if compilation failed
       if: failure()
       shell: bash
@@ -192,3 +271,5 @@ jobs:
         for f in Henge/ios/build/DerivedData.buildlog Husk/build/logs/*.log; do
           if [ -f "$f" ]; then echo "=== $f ==="; tail -60 "$f"; fi
         done
+    permissions:
+      contents: write
