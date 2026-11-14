@@ -1,3 +1,7 @@
+# Bitrise build for the unsigned Henge IPA (see docs/BUILDING.md).
+# The push trigger below points at a retired fix branch on purpose: builds
+# start manually from the Bitrise dashboard, so no Bitrise minutes are spent
+# on ordinary pushes. Point the branch back at main if push builds are wanted.
 format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
 project_type: ios
