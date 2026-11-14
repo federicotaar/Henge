@@ -164,7 +164,8 @@ def save_png(img_bgra, path):
 
 def analyse(meta_path):
     d = os.path.dirname(meta_path)
-    m = json.load(open(meta_path))
+    with open(meta_path) as f:
+        m = json.load(f)
     seq, w, h = m["seq"], m["width"], m["height"]
     g = m["gamma"]
     print(f"\n=== capture {seq:03d}  why={m['why']}  t={m['t']}s  mapping {m['mapping']}  {w}x{h}  {m['src_format']} ({m['fourcc']})")
@@ -173,7 +174,8 @@ def analyse(meta_path):
     gp = os.path.join(d, m["files"]["gamma"])
     if os.path.exists(gp):
         print("  gamma table:")
-        describe_table(open(gp, "rb").read())
+        with open(gp, "rb") as f:
+            describe_table(f.read())
     else:
         print("  gamma table: not found in the surface")
 
