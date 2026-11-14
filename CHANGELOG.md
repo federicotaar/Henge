@@ -6,6 +6,15 @@ Every change keeps its original author in the git history.
 
 ## Unreleased
 
+### Tools
+- update-source.py: repo.json is written atomically, screenshot URLs are quoted,
+  and a missing Screenshots/ folder warns instead of crashing the update.
+- swatches.py: clear error when a pull has no frame-*.json; the meta file is
+  closed after reading (analyze.py closes its files too).
+- probe.sh: two pulls inside the same second get distinct folders.
+- export_ios.sh: a non-numeric ECID or RAM_MB is rejected up front instead of
+  producing an invalid machine.json.
+
 ### The screen is a Magic Trackpad 2
 - The session's trackpad is no longer a relative mouse: the engine presents it to the Mac as
   a Magic Trackpad 2 (Apple's vendor multitouch format) on the xHCI USB bus, so the guest's
