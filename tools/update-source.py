@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import urllib.request
+from urllib.parse import quote
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "repo.json")
@@ -68,7 +69,7 @@ def screenshots():
         return []
     names = [n for n in os.listdir(folder) if n.lower().endswith((".png", ".jpg", ".jpeg"))]
     names.sort(key=lambda n: (FIRST_SHOTS.index(n) if n in FIRST_SHOTS else len(FIRST_SHOTS), n))
-    return [f"{RAW}/Screenshots/{n}" for n in names]
+    return [f"{RAW}/Screenshots/{quote(n)}" for n in names]  # spaces/utf-8 in file names need quoting
 
 
 def main():
