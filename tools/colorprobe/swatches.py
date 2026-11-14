@@ -50,7 +50,10 @@ def main():
     surface, half*255 is a whole number for every swatch; if it wrote linear light, sRGB-decoded numbers are not. Count both."""
     d = sys.argv[1]
     metas = sorted(glob.glob(os.path.join(d, "frame-*.json")))
-    m = json.load(open(metas[-1]))
+    if not metas:
+        raise SystemExit(f"no frame-*.json in {d} - pull a capture first (probe.sh capture)")
+    with open(metas[-1]) as f:
+        m = json.load(f)
     w, h = m["width"], m["height"]
     src = np.fromfile(os.path.join(d, m["files"]["src"]), dtype="<f2").reshape(h, w, 4).astype(np.float32)
     post = np.fromfile(os.path.join(d, m["files"]["post"]), dtype=np.uint8).reshape(h, w, 4)
