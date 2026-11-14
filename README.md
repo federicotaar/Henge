@@ -11,6 +11,8 @@
   ·
   <a href="docs/architecture.md">How it works</a>
   ·
+  <a href="docs/BUILDING.md">Building</a>
+  ·
   <a href="https://itslevii.dev">Website</a>
   ·
   <a href="https://github.com/Leviidev/Henge/releases">Releases</a>
