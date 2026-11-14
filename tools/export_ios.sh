@@ -7,6 +7,10 @@
 set -e
 DISK=$1; AUX=$2; ECID=$3; NAME=${4:-Mac}; RAM=${5:-2048}; OUT=${6:-$HOME/Desktop/$NAME}
 [ -f "$DISK" ] && [ -f "$AUX" ] && [ -n "$ECID" ] || { echo "usage: $0 DISK AUX ECID [NAME] [RAM_MB] [OUTDIR]" >&2; exit 2; }
+# ECID and RAM go into machine.json unquoted: reject anything non-numeric up front
+# instead of packing a folder whose manifest is not valid JSON
+case $ECID in (*[!0-9]*) echo "ECID must be a decimal number (the device's ECID, e.g. from ideviceinfo)" >&2; exit 2;; esac
+case $RAM in (*[!0-9]*) echo "RAM_MB must be a number of megabytes (e.g. 2048)" >&2; exit 2;; esac
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 make -C "$HERE" build/hvsparse >/dev/null
 mkdir -p "$OUT"
