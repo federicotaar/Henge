@@ -69,7 +69,10 @@ capture)
     "$0" pull && "$0" summary
     ;;
 pull)
-    dest="$OUT/pull-$(date +%H%M%S)"; mkdir -p "$dest"
+    # two pulls inside the same second must not mix files; add a day stamp + counter
+    dest="$OUT/pull-$(date +%Y%m%d-%H%M%S)"
+    i=2; while [ -e "$dest" ]; do dest="$OUT/pull-$(date +%Y%m%d-%H%M%S)-$i"; i=$((i+1)); done
+    mkdir -p "$dest"
     n=0
     for f in $(files "$REMOTE"); do
         case "$f" in trigger) continue;; esac
