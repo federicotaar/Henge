@@ -24,7 +24,9 @@ Metal-based devices need the macOS frameworks listed in the Makefile;
 `bitrise.yml` + `ci/build-bitrise.sh` produce an ad-hoc-signed IPA on a
 Bitrise macOS/Xcode stack; SideStore or AltStore re-signs it on device.
 The script expects `BITRISE_SOURCE_DIR` and a `Husk` checkout next to the
-Henge one.
+Henge one. The push trigger in `bitrise.yml` points at a retired fix
+branch, so builds start manually from the Bitrise dashboard and no Bitrise
+minutes are spent on ordinary pushes.
 
 ## Rebuilding StikJIT for high JIT addresses
 
