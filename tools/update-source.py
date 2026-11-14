@@ -12,6 +12,7 @@ The combined source at https://itslevii.dev/repo.json takes its Henge entry from
 """
 import json
 import os
+import sys
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -61,6 +62,10 @@ FIRST_SHOTS = ["macs.png", "trackpad.png", "install.png", "ipad.jpg"]  # the ord
 
 def screenshots():
     folder = os.path.join(ROOT, "Screenshots")
+    if not os.path.isdir(folder):
+        # an AltStore entry may have no screenshots; warn rather than crash the whole update
+        print("note: no Screenshots/ folder - the source will list none", file=sys.stderr)
+        return []
     names = [n for n in os.listdir(folder) if n.lower().endswith((".png", ".jpg", ".jpeg"))]
     names.sort(key=lambda n: (FIRST_SHOTS.index(n) if n in FIRST_SHOTS else len(FIRST_SHOTS), n))
     return [f"{RAW}/Screenshots/{n}" for n in names]
