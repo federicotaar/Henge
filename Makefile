@@ -14,10 +14,15 @@ METAL_LIBS = -framework Foundation -framework QuartzCore -framework Metal -frame
 TESTS = $(B)/test_classify $(B)/test_jit_region $(B)/test_operands $(B)/test_jit $(B)/test_mem \
         $(B)/test_mmu $(B)/test_exc $(B)/test_devices $(B)/test_shutdown
 
-all: $(TESTS) $(B)/hengevm $(B)/hengevm-ref $(B)/hvsparse
+all: $(TESTS) $(B)/hengevm $(B)/hengevm-ref $(B)/hvsparse ## Build everything: test binaries, hengevm, hengevm-ref, hvsparse
+
+help: ## List the main targets
+	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
+
+.PHONY: all help
 
 # Mac-only test tool: the same machine with the CPU on Hypervisor.framework, for comparing runs.
-$(B)/hengevm-ref: host/hvf_ref.c host/hvf_ref.entitlements $(ENGINE) $(DEV)
+$(B)/hengevm-ref: host/hvf_ref.c host/hvf_ref.entitlements $(ENGINE) $(DEV) ## Mac-only reference VM on Hypervisor.framework
 	$(CC) $(CFLAGS) host/hvf_ref.c $(ENGINE) $(DEV) -framework Hypervisor $(METAL_LIBS) -o $@
 	codesign -s - -f --entitlements host/hvf_ref.entitlements $@
 
@@ -112,13 +117,13 @@ $(B)/test_devices: tests/test_devices.c tests/devices_programs.S tests/harness.S
 $(B)/test_%: tests/test_%.c tests/%_programs.S tests/harness.S tests/harness.h $(ENGINE)
 	$(CC) $(CFLAGS) -Itests tests/test_$*.c tests/$*_programs.S tests/harness.S $(ENGINE) -o $@
 
-test: all
+test: all ## Build and run the full test suite
 	@ulimit -s 65520; for t in $(TESTS); do echo "== $$t"; $$t || exit 1; done # a test keeps a whole HvCpu (2 MB of TLB and more) on its stack
 
 $(B):
 	mkdir -p $(B)
 
-clean:
+clean: ## Remove build outputs
 	rm -rf $(B)
 
 .PHONY: all test clean
@@ -151,7 +156,7 @@ $(IB)/host/enter.o: host/enter.S
 $(IB)/libhengevm.a: $(IOS_OBJ)
 	rm -f $@
 	xcrun --sdk iphoneos libtool -static -o $@ $(IOS_OBJ)
-ios-lib: $(IB)/libhengevm.a
+ios-lib: $(IB)/libhengevm.a ## Static engine library for the iOS app
 .PHONY: ios-lib
 
 # The restore stack, built from the same sources and with the same stand-ins as iOS.
