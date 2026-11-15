@@ -1,3 +1,6 @@
+/* HVSPARSE pack/unpack: rewrites a sparse raw disk image with the holes
+   left out, so copying it to an iPhone (Finder file sharing copies holes as
+   real bytes) only moves real data. 8 MB copy chunks. Format in hvsparse.h. */
 #include "hvsparse.h"
 
 #include <fcntl.h>
