@@ -1,3 +1,6 @@
+/* Raw disk image backend: one file, optionally starting `offset` bytes in,
+   with a second F_NOCACHE descriptor for writes when asked. IO moves in
+   128 MB chunks so a huge single read/write cannot fail or stall. See disk.h. */
 #include <fcntl.h>
 #include <errno.h>
 #include "../core/machine.h"
