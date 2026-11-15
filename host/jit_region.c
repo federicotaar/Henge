@@ -1,3 +1,8 @@
+/* The JIT region lifecycle: allocate one executable region for translated
+   blocks, flip writability while copying code in (per-thread on macOS with
+   MAP_JIT; via a writable alias on iOS where a debugger granted the
+   executable mapping), and reset the whole region when it fills. jit_region.h
+   has the two shapes. */
 #include "jit_region.h"
 
 #include <TargetConditionals.h>
