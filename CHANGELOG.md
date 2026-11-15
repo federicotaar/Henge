@@ -6,6 +6,12 @@ Every change keeps its original author in the git history.
 
 ## Unreleased
 
+### Docs
+- New pages for the restore toolchain build (tools/build_ios_restore.sh) and
+  the AltStore/SideStore source generator (tools/update-source.py).
+- Workflow files carry a header explaining when each pipeline runs.
+
+
 ### Tools
 - update-source.py: repo.json is written atomically, screenshot URLs are quoted,
   and a missing Screenshots/ folder warns instead of crashing the update.
