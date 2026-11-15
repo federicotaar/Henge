@@ -6,6 +6,8 @@ Every change keeps its original author in the git history.
 
 ## Unreleased
 
+- Cleanup: doppio `#include <fcntl.h>` rimosso da host/disk.c, e commenti di testata sui backend host (disco raw, immagini HVSPARSE, regione JIT) che rimandano agli header per il dettaglio.
+
 ### Docs
 - New pages for the restore toolchain build (tools/build_ios_restore.sh) and
   the AltStore/SideStore source generator (tools/update-source.py).
