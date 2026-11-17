@@ -74,7 +74,7 @@ def screenshots():
         # an AltStore entry may have no screenshots; warn rather than crash the whole update
         print("note: no Screenshots/ folder - the source will list none", file=sys.stderr)
         return []
-    names = [n for n in os.listdir(folder) if n.lower().endswith((".png", ".jpg", ".jpeg"))]
+    names = [n for n in os.listdir(folder) if n.lower().endswith((".png", ".jpg", ".jpeg")) and os.path.isfile(os.path.join(folder,n))]
     names.sort(key=lambda n: (FIRST_SHOTS.index(n) if n in FIRST_SHOTS else len(FIRST_SHOTS), n))
     return [f"{RAW}/Screenshots/{quote(n)}" for n in names]  # spaces/utf-8 in file names need quoting
 
