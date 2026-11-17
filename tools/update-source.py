@@ -110,6 +110,8 @@ def main():
             },
         },
     }
+    if not app["versions"]:
+        raise ValueError("No installable releases; refusing to overwrite the source")
     source = {
         "name": "Henge",
         "identifier": "dev.itslevii.henge",
