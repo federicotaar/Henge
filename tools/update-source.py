@@ -34,7 +34,12 @@ def gh(path):
 
 def versions():
     out = []
-    for rel in gh("/repos/Leviidev/Henge/releases?per_page=30"):
+    releases=gh("/repos/Leviidev/Henge/releases?per_page=30")
+    if not isinstance(releases,list):
+        raise ValueError("GitHub releases response must be a list")
+    for rel in releases:
+        if not isinstance(rel,dict):
+            continue
         if rel.get("draft") or rel.get("prerelease"):
             continue
         ipa = next((a for a in rel["assets"] if a["name"].lower().endswith(".ipa")), None)
