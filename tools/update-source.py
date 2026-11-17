@@ -45,6 +45,8 @@ def versions():
         ipa = next((a for a in (rel.get("assets") or []) if isinstance(a,dict) and isinstance(a.get("name"),str) and a["name"].lower().endswith(".ipa")), None)
         if not ipa:
             continue
+        if type(ipa.get("size")) is not int or ipa["size"]<=0:
+            raise ValueError("IPA asset must have a positive byte size")
         tag = rel["tag_name"].lstrip("vV")
         if tag not in BUILDS:
             raise SystemExit(f"release {tag}: add its app version and build number to BUILDS first")
