@@ -42,7 +42,7 @@ def versions():
             continue
         if rel.get("draft") or rel.get("prerelease"):
             continue
-        ipa = next((a for a in rel["assets"] if a["name"].lower().endswith(".ipa")), None)
+        ipa = next((a for a in (rel.get("assets") or []) if isinstance(a,dict) and isinstance(a.get("name"),str) and a["name"].lower().endswith(".ipa")), None)
         if not ipa:
             continue
         tag = rel["tag_name"].lstrip("vV")
