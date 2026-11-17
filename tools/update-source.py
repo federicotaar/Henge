@@ -126,7 +126,7 @@ def main():
     }
     # write atomically: a crash mid-write must not leave a truncated repo.json behind
     tmp = OUT + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write(json.dumps(source, indent=2) + "\n")
     os.replace(tmp, OUT)
     print(f"wrote repo.json: Henge {', '.join(v['version'] for v in app['versions'])}")
